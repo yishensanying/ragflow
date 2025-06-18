@@ -157,8 +157,10 @@ RUN --mount=type=cache,id=ragflow_uv,target=/root/.cache/uv,sharing=locked \
     fi; \
     if [ "$LIGHTEN" == "1" ]; then \
         uv sync --python 3.10 --frozen; \
+        uv add 'gunicorn>=23.0.0' 'gevent>=23.0.0'; \
     else \
         uv sync --python 3.10 --frozen --all-extras; \
+        uv add 'gunicorn>=23.0.0' 'gevent>=23.0.0'; \
     fi
 
 COPY web web

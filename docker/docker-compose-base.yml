@@ -21,6 +21,8 @@ services:
       - cluster.routing.allocation.disk.watermark.high=3gb
       - cluster.routing.allocation.disk.watermark.flood_stage=2gb
       - TZ=${TIMEZONE}
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g -XX:UseSVE=0
+      - CLI_JAVA_OPTS=-XX:UseSVE=0
     mem_limit: ${MEM_LIMIT}
     ulimits:
       memlock:
@@ -164,7 +166,7 @@ services:
     restart: on-failure
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2023-12-20T01-00-02Z
+    image: quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: ragflow-minio
     command: server --console-address ":9001" /data
     ports:
@@ -183,9 +185,11 @@ services:
 
   redis:
     # swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/valkey/valkey:8
-    image: valkey/valkey:8
+    # image: valkey/valkey:8
+    image: redis:7-alpine  # 替换为标准Redis
     container_name: ragflow-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 128mb --maxmemory-policy allkeys-lru
+    # command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 8GB --maxmemory-policy allkeys-lru
     env_file: .env
     ports:
       - ${REDIS_PORT}:6379

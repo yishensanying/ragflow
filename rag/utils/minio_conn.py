@@ -83,15 +83,37 @@ class RAGFlowMinio:
             logging.exception(f"Fail to remove {bucket}/{fnm}:")
 
     def get(self, bucket, filename):
-        for _ in range(1):
+        for i in range(3):
             try:
+                # 检查存储桶是否存在，如果不存在则创建
+                if not self.conn.bucket_exists(bucket):
+                    logging.warning(f"Bucket {bucket} does not exist, creating it...")
+                    self.conn.make_bucket(bucket)
+                
                 r = self.conn.get_object(bucket, filename)
                 return r.read()
+            except S3Error as e:
+                if e.code == "NoSuchBucket":
+                    logging.warning(f"Bucket {bucket} does not exist, attempt {i+1}/3")
+                    if i < 2:  # 不是最后一次重试
+                        try:
+                            self.conn.make_bucket(bucket)
+                            continue
+                        except Exception:
+                            logging.exception(f"Failed to create bucket {bucket}")
+                elif e.code == "NoSuchKey":
+                    logging.warning(f"File {filename} not found in bucket {bucket}")
+                    return None
+                logging.exception(f"S3Error in get {bucket}/{filename}: {e}")
+                if i < 2:  # 不是最后一次重试
+                    self.__open__()
+                    time.sleep(1)
             except Exception:
                 logging.exception(f"Fail to get {bucket}/{filename}")
-                self.__open__()
-                time.sleep(1)
-        return
+                if i < 2:  # 不是最后一次重试
+                    self.__open__()
+                    time.sleep(1)
+        return None
 
     def obj_exist(self, bucket, filename):
         try:

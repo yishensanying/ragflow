@@ -75,16 +75,17 @@ SANDBOX_HOST = None
 BUILTIN_EMBEDDING_MODELS = ["BAAI/bge-large-zh-v1.5@BAAI", "maidalun1020/bce-embedding-base_v1@Youdao"]
 
 def get_or_create_secret_key():
-    secret_key = os.environ.get("RAGFLOW_SECRET_KEY")
-    if secret_key and len(secret_key) >= 32:
+    # 优先使用环境变量
+    secret_key = os.environ.get("RAGFLOW_SECRET_KEY") or os.environ.get("SECRET_KEY")
+    if secret_key and len(secret_key) >= 16:  # 降低最小长度要求
         return secret_key
     
-    # Check if there's a configured secret key
+    # 使用配置文件中的secret_key
     configured_key = get_base_config(RAG_FLOW_SERVICE_NAME, {}).get("secret_key")
-    if configured_key and configured_key != str(date.today()) and len(configured_key) >= 32:
+    if configured_key and configured_key != str(date.today()) and len(configured_key) >= 16:  # 降低最小长度要求
         return configured_key
     
-    # Generate a new secure key and warn about it
+    # 最后才生成新的密钥并给出警告
     import logging
     new_key = secrets.token_hex(32)
     logging.warning(

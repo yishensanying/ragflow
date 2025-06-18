@@ -56,12 +56,17 @@ def request(**kwargs):
     kwargs["headers"] = {k.replace("_", "-").upper(): v for k, v in kwargs.get("headers", {}).items()}
     prepped = requests.Request(**kwargs).prepare()
 
-    if settings.CLIENT_AUTHENTICATION and settings.HTTP_APP_KEY and settings.SECRET_KEY:
+    # 直接读取SECRET_KEY配置，确保一致性
+    from api.utils import get_base_config
+    from datetime import date
+    secret_key = get_base_config("ragflow", {}).get("secret_key", str(date.today()))
+
+    if settings.CLIENT_AUTHENTICATION and settings.HTTP_APP_KEY and secret_key:
         timestamp = str(round(time() * 1000))
         nonce = str(uuid1())
         signature = b64encode(
             HMAC(
-                settings.SECRET_KEY.encode("ascii"),
+                secret_key.encode("ascii"),
                 b"\n".join(
                     [
                         timestamp.encode("ascii"),
@@ -120,7 +125,18 @@ def server_error_response(e):
     except BaseException:
         pass
     if len(e.args) > 1:
-        return get_json_result(code=settings.RetCode.EXCEPTION_ERROR, message=repr(e.args[0]), data=e.args[1])
+        # 确保异常数据可以JSON序列化
+        error_data = e.args[1]
+        if isinstance(error_data, bytes):
+            # 如果是bytes对象，转换为可读字符串
+            try:
+                error_data = error_data.decode('utf-8', errors='replace')
+            except:
+                error_data = str(error_data)
+        elif not isinstance(error_data, (str, int, float, bool, list, dict, type(None))):
+            # 如果不是JSON序列化类型，转换为字符串
+            error_data = str(error_data)
+        return get_json_result(code=settings.RetCode.EXCEPTION_ERROR, message=repr(e.args[0]), data=error_data)
     if repr(e).find("index_not_found_exception") >= 0:
         return get_json_result(code=settings.RetCode.EXCEPTION_ERROR, message="No chunk found, please upload file and parse it.")
 

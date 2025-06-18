@@ -29,7 +29,7 @@ ENABLE_TASKEXECUTOR=1  # Default to enable task executor
 ENABLE_MCP_SERVER=0
 CONSUMER_NO_BEG=0
 CONSUMER_NO_END=0
-WORKERS=1
+WORKERS=5
 
 MCP_HOST="127.0.0.1"
 MCP_PORT=9382
@@ -163,7 +163,17 @@ if [[ "${ENABLE_WEBSERVER}" -eq 1 ]]; then
 
     echo "Starting ragflow_server..."
     while true; do
-        "$PY" api/ragflow_server.py
+        # 检查是否为DEBUG模式
+        if [[ "${DEBUG:-false}" == "true" ]]; then
+            echo "Starting in DEBUG mode with Werkzeug..."
+            "$PY" api/ragflow_server.py --debug
+        else
+            echo "Starting with built-in server (gunicorn)..."
+            # 直接使用ragflow_server.py内置的gunicorn配置
+            "$PY" api/ragflow_server.py
+        fi
+        echo "ragflow_server exited, restarting in 3 seconds..."
+        sleep 3
     done &
 fi
 

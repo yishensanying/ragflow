@@ -1,6 +1,7 @@
 ragflow:
   host: ${RAGFLOW_HOST:-0.0.0.0}
   http_port: 9380
+  secret_key: '${SECRET_KEY:-ragflow-secret-key-default-2025}'
 mysql:
   name: '${MYSQL_DBNAME:-rag_flow}'
   user: '${MYSQL_USER:-root}'
@@ -14,7 +15,7 @@ minio:
   password: '${MINIO_PASSWORD:-infini_rag_flow}'
   host: '${MINIO_HOST:-minio}:9000'
 es:
-  hosts: 'http://${ES_HOST:-es01}:9200'
+  hosts: 'http://${ES_HOST:-es01}:${ES_PORT:-9200}'
   username: '${ES_USER:-elastic}'
   password: '${ELASTIC_PASSWORD:-infini_rag_flow}'
 os:

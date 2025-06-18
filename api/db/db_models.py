@@ -258,17 +258,29 @@ class BaseDataBase:
     def __init__(self):
         database_config = settings.DATABASE.copy()
         db_name = database_config.pop("name")
+        
+        # 如果是MySQL，确保使用utf8mb4字符集并添加连接池配置
+        if settings.DATABASE_TYPE.upper() == "MYSQL":
+            database_config.setdefault("charset", "utf8mb4")
+            # 添加连接池和超时配置
+            database_config.setdefault("max_connections", 32)
+            database_config.setdefault("stale_timeout", 300)  # 5分钟
+            database_config.setdefault("timeout", 20)  # 连接超时
+            database_config.setdefault("autocommit", True)
+            # 添加MySQL特定的参数
+            database_config.setdefault("sql_mode", "STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO")
+            
         self.database_connection = PooledDatabase[settings.DATABASE_TYPE.upper()].value(db_name, **database_config)
         logging.info("init database on cluster mode successfully")
 
 
 def with_retry(max_retries=3, retry_delay=1.0):
     """Decorator: Add retry mechanism to database operations
-    
+
     Args:
         max_retries (int): maximum number of retries
         retry_delay (float): initial retry delay (seconds), will increase exponentially
-        
+
     Returns:
         decorated function
     """
@@ -285,14 +297,14 @@ def with_retry(max_retries=3, retry_delay=1.0):
                     self_obj = args[0] if args else None
                     func_name = func.__name__
                     lock_name = getattr(self_obj, 'lock_name', 'unknown') if self_obj else 'unknown'
-                    
+
                     if retry < max_retries - 1:
                         current_delay = retry_delay * (2 ** retry)
                         logging.warning(f"{func_name} {lock_name} failed: {str(e)}, retrying ({retry+1}/{max_retries})")
                         time.sleep(current_delay)
                     else:
                         logging.error(f"{func_name} {lock_name} failed after all attempts: {str(e)}")
-            
+
             if last_exception:
                 raise last_exception
             return False
@@ -472,7 +484,11 @@ class User(DataBaseModel, UserMixin):
         return self.email
 
     def get_id(self):
-        jwt = Serializer(secret_key=settings.SECRET_KEY)
+        # 直接读取SECRET_KEY配置，确保一致性
+        from api.utils import get_base_config
+        from datetime import date
+        secret_key = get_base_config("ragflow", {}).get("secret_key", str(date.today()))
+        jwt = Serializer(secret_key=secret_key)
         return jwt.dumps(str(self.access_token))
 
     class Meta:

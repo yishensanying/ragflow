@@ -14,10 +14,13 @@
 #  limitations under the License
 #
 import logging
+import os
 from datetime import datetime
 import json
+import time
 
 from flask_login import login_required, current_user
+from flask import session, current_app
 
 from api.db.db_models import APIToken
 from api.db.services.api_service import APITokenService
@@ -319,3 +322,149 @@ def get_config():
     return get_json_result(data={
         "registerEnabled": settings.REGISTER_ENABLED
     })
+
+
+@manager.route("/session/health", methods=["GET"])  # noqa: F821
+@login_required
+def session_health():
+    """
+    检查session配置和健康状态
+    ---
+    tags:
+      - System
+    security:
+      - ApiKeyAuth: []
+    responses:
+      200:
+        description: Session health status retrieved successfully.
+        schema:
+          type: object
+          properties:
+            session_type:
+              type: string
+              description: Current session storage type (redis/filesystem).
+            redis_available:
+              type: boolean
+              description: Whether Redis is available.
+            session_config:
+              type: object
+              description: Current session configuration details.
+            worker_info:
+              type: object
+              description: Current worker process information.
+    """
+    health_info = {
+        "session_type": current_app.config.get("SESSION_TYPE", "unknown"),
+        "session_config": {},
+        "worker_info": {
+            "worker_pid": os.getpid(),
+            "session_id": session.get("ragflow_worker_id", "N/A"),
+            "session_created": session.get("ragflow_session_created", "N/A"),
+            "request_count": session.get("ragflow_request_count", 0),
+            "last_accessed": session.get("ragflow_last_accessed", "N/A")
+        },
+        "redis_info": {},
+        "recommendations": []
+    }
+
+    # 检查Redis状态
+    try:
+        if REDIS_CONN.is_alive():
+            REDIS_CONN.REDIS.ping()
+            health_info["redis_available"] = True
+            health_info["redis_info"] = {
+                "status": "connected",
+                "host": REDIS_CONN.config.get("host", "unknown"),
+                "db": REDIS_CONN.config.get("db", "unknown")
+            }
+        else:
+            health_info["redis_available"] = False
+            health_info["redis_info"] = {"status": "not_connected"}
+    except Exception as e:
+        health_info["redis_available"] = False
+        health_info["redis_info"] = {"status": "error", "error": str(e)}
+
+    # 检查redis包可用性（Flask-Session需要）
+    try:
+        import redis
+        health_info["redis_package_available"] = True
+        health_info["redis_package_version"] = getattr(redis, "__version__", "unknown")
+    except ImportError:
+        health_info["redis_package_available"] = False
+        health_info["redis_package_version"] = "not_installed"
+
+    # 检查SECRET_KEY配置
+    secret_key = current_app.config.get('SECRET_KEY')
+    health_info["secret_key_configured"] = bool(secret_key and secret_key != 'NOT_SET')
+    health_info["secret_key_length"] = len(secret_key) if secret_key else 0
+
+    # 收集session配置信息
+    session_type = health_info["session_type"]
+    if session_type == "redis":
+        health_info["session_config"] = {
+            "key_prefix": current_app.config.get("SESSION_KEY_PREFIX", ""),
+            "expiration_time": current_app.config.get("SESSION_REDIS_EXPIRATION_TIME", ""),
+            "use_signer": current_app.config.get("SESSION_USE_SIGNER", False)
+        }
+    elif session_type == "filesystem":
+        health_info["session_config"] = {
+            "file_dir": current_app.config.get("SESSION_FILE_DIR", ""),
+            "file_threshold": current_app.config.get("SESSION_FILE_THRESHOLD", ""),
+            "file_mode": current_app.config.get("SESSION_FILE_MODE", "")
+        }
+
+    # 生成建议
+    if session_type == "filesystem":
+        health_info["recommendations"].append({
+            "level": "warning",
+            "message": "Using filesystem session storage may cause login issues in multi-process environment",
+            "action": "Consider enabling Redis for session storage"
+        })
+
+    if not health_info.get("redis_package_available", False):
+        health_info["recommendations"].append({
+            "level": "warning",
+            "message": "redis package not installed - Flask-Session Redis support unavailable",
+            "action": "Install redis package: pip install redis"
+        })
+
+    if not health_info["redis_available"] and session_type == "redis":
+        health_info["recommendations"].append({
+            "level": "error", 
+            "message": "Redis is configured but not available",
+            "action": "Check Redis service status and connection"
+        })
+
+    if health_info["redis_available"] and health_info.get("redis_package_available", False) and session_type == "filesystem":
+        health_info["recommendations"].append({
+            "level": "info",
+            "message": "Redis is available but filesystem sessions are being used", 
+            "action": "Set RAGFLOW_SESSION_TYPE=redis to use Redis for better reliability"
+        })
+
+    if not health_info["secret_key_configured"]:
+        health_info["recommendations"].append({
+            "level": "error",
+            "message": "SECRET_KEY is not configured or invalid",
+            "action": "Set SECRET_KEY environment variable in docker-compose.yml"
+        })
+    elif health_info["secret_key_length"] < 16:
+        health_info["recommendations"].append({
+            "level": "warning",
+            "message": "SECRET_KEY is too short (recommended: at least 16 characters)",
+            "action": "Use a longer, more secure SECRET_KEY"
+        })
+
+    # 添加测试session读写
+    try:
+        test_key = f"health_test_{int(time.time())}"
+        session[test_key] = "test_value"
+        if session.get(test_key) == "test_value":
+            health_info["session_read_write"] = "ok"
+            session.pop(test_key, None)
+        else:
+            health_info["session_read_write"] = "failed"
+    except Exception as e:
+        health_info["session_read_write"] = f"error: {str(e)}"
+
+    return get_json_result(data=health_info)

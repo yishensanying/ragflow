@@ -25,6 +25,22 @@ services:
       - HF_ENDPOINT=${HF_ENDPOINT}
       - MACOS=${MACOS:-1}
       - LIGHTEN=${LIGHTEN:-1}
+      # Flask secret key for session signing
+      - SECRET_KEY=${SECRET_KEY:-ragflow-secret-key-default-2025}
+      # Session管理配置（优化多进程session共享）
+      - RAGFLOW_SESSION_TYPE=${RAGFLOW_SESSION_TYPE:-auto}
+      - RAGFLOW_SESSION_TIMEOUT=${RAGFLOW_SESSION_TIMEOUT:-604800}  # 7天，单位秒
+      - RAGFLOW_SESSION_DIR=${RAGFLOW_SESSION_DIR:-/tmp/ragflow_sessions}
+      # Gunicorn 配置
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-4}
+      - GUNICORN_WORKER_CLASS=${GUNICORN_WORKER_CLASS:-sync}
+      - GUNICORN_WORKER_CONNECTIONS=${GUNICORN_WORKER_CONNECTIONS:-1000}
+      - GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-300}
+      - GUNICORN_KEEPALIVE=${GUNICORN_KEEPALIVE:-5}
+      - GUNICORN_PRELOAD_APP=${GUNICORN_PRELOAD_APP:-true}
+      - GUNICORN_ACCESS_LOG=${GUNICORN_ACCESS_LOG:--}
+      - GUNICORN_ERROR_LOG=${GUNICORN_ERROR_LOG:--}
+      - GUNICORN_LOG_LEVEL=${GUNICORN_LOG_LEVEL:-info}
     networks:
       - ragflow
     restart: on-failure

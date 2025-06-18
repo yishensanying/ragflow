@@ -30,8 +30,8 @@ import time
 import traceback
 import threading
 import uuid
+import multiprocessing
 
-from werkzeug.serving import run_simple
 from api import settings
 from api.apps import app
 from api.db.runtime_config import RuntimeConfig
@@ -70,7 +70,7 @@ def signal_handler(sig, frame):
     time.sleep(1)
     sys.exit(0)
 
-if __name__ == '__main__':
+def init_app():
     logging.info(r"""
         ____   ___    ______ ______ __               
        / __ \ /   |  / ____// ____// /____  _      __
@@ -135,19 +135,77 @@ if __name__ == '__main__':
     else:
         threading.Timer(1.0, delayed_start_update_progress).start()
 
-    # start http server
-    try:
-        logging.info("RAGFlow HTTP server start...")
-        run_simple(
-            hostname=settings.HOST_IP,
-            port=settings.HOST_PORT,
-            application=app,
-            threaded=True,
-            use_reloader=RuntimeConfig.DEBUG,
-            use_debugger=RuntimeConfig.DEBUG,
-        )
-    except Exception:
-        traceback.print_exc()
-        stop_event.set()
-        time.sleep(1)
-        os.kill(os.getpid(), signal.SIGKILL)
+    return app
+
+# 初始化应用实例
+app = init_app()
+
+# 这部分是为了直接使用python命令运行时可以使用内置服务器进行开发调试
+if __name__ == '__main__':
+    # 如果在开发环境中使用debug模式，使用werkzeug的开发服务器
+    if RuntimeConfig.DEBUG:
+        try:
+            from werkzeug.serving import run_simple
+            logging.info("RAGFlow HTTP server starting in debug mode...")
+            logging.info("RAGFlow HTTP server starting in run_simple...")
+            run_simple(
+                hostname=settings.HOST_IP,
+                port=settings.HOST_PORT,
+                application=app,
+                threaded=True,
+                use_reloader=True,
+                use_debugger=True,
+            )
+        except Exception:
+            traceback.print_exc()
+            stop_event.set()
+            time.sleep(1)
+            os.kill(os.getpid(), signal.SIGKILL)
+    else:
+        # 在生产环境使用gunicorn
+        try:
+            logging.info("RAGFlow HTTP server starting in gunicorn...")
+            import gunicorn.app.base
+
+            class StandaloneApplication(gunicorn.app.base.BaseApplication):
+                def __init__(self, app, options=None):
+                    self.options = options or {}
+                    self.application = app
+                    super().__init__()
+
+                def load_config(self):
+                    for key, value in self.options.items():
+                        if key in self.cfg.settings and value is not None:
+                            self.cfg.set(key.lower(), value)
+
+                def load(self):
+                    return self.application
+
+            # 从环境变量读取gunicorn配置，提供合理的默认值
+            workers = int(os.environ.get('GUNICORN_WORKERS', 
+                          min(multiprocessing.cpu_count() * 2 + 1, 16)))
+
+            # gunicorn配置
+            options = {
+                'bind': f"{settings.HOST_IP}:{settings.HOST_PORT}",
+                'workers': workers,
+                'worker_class': os.environ.get('GUNICORN_WORKER_CLASS', 'sync'),
+                'worker_connections': int(os.environ.get('GUNICORN_WORKER_CONNECTIONS', '1000')),
+                'timeout': int(os.environ.get('GUNICORN_TIMEOUT', '300')),
+                'keepalive': int(os.environ.get('GUNICORN_KEEPALIVE', '5')),
+                'preload_app': os.environ.get('GUNICORN_PRELOAD_APP', 'true').lower() == 'true',
+                'accesslog': os.environ.get('GUNICORN_ACCESS_LOG', '-'),
+                'errorlog': os.environ.get('GUNICORN_ERROR_LOG', '-'),
+                'loglevel': os.environ.get('GUNICORN_LOG_LEVEL', 'info'),
+                'max_requests': int(os.environ.get('GUNICORN_MAX_REQUESTS', '1000')),
+                'max_requests_jitter': int(os.environ.get('GUNICORN_MAX_REQUESTS_JITTER', '100')),
+                'worker_tmp_dir': '/dev/shm',
+            }
+
+            logging.info(f"RAGFlow HTTP server starting with gunicorn (workers: {workers})...")
+            StandaloneApplication(app, options).run()
+        except Exception:
+            traceback.print_exc()
+            stop_event.set()
+            time.sleep(1)
+            os.kill(os.getpid(), signal.SIGKILL)
