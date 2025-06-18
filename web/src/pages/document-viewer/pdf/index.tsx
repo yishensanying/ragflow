@@ -3,7 +3,7 @@ import { getAuthorization } from '@/utils/authorization-util';
 import { Skeleton } from 'antd';
 import { PdfHighlighter, PdfLoader } from 'react-pdf-highlighter';
 import FileError from '../file-error';
-import { useCatchError } from '../hooks';
+import { useState } from 'react';
 type PdfLoaderProps = React.ComponentProps<typeof PdfLoader> & {
   httpHeaders?: Record<string, string>;
 };
@@ -15,7 +15,7 @@ interface IProps {
 }
 
 const PdfPreviewer = ({ url }: IProps) => {
-  const { error } = useCatchError(url);
+  const [error, setError] = useState<string>('');
   const resetHash = () => {};
   const httpHeaders = {
     [Authorization]: getAuthorization(),
@@ -30,6 +30,7 @@ const PdfPreviewer = ({ url }: IProps) => {
         errorMessage={<FileError>{error}</FileError>}
         onError={(e) => {
           console.warn(e);
+          setError(e?.message || 'PDF加载失败');
         }}
       >
         {(pdfDocument) => {

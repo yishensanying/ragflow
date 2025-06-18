@@ -5,23 +5,7 @@ import axios from 'axios';
 import mammoth from 'mammoth';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export const useCatchError = (api: string) => {
-  const [error, setError] = useState('');
-  const fetchDocument = useCallback(async () => {
-    const ret = await axios.get(api);
-    const { data } = ret;
-    if (!(data instanceof ArrayBuffer) && data.code !== 0) {
-      setError(data.message);
-    }
-    return ret;
-  }, [api]);
-
-  useEffect(() => {
-    fetchDocument();
-  }, [fetchDocument]);
-
-  return { fetchDocument, error };
-};
+// 移除了useCatchError函数，因为它会导致重复请求
 
 export const useFetchDocument = () => {
   const fetchDocument = useCallback(async (api: string) => {
@@ -38,35 +22,88 @@ export const useFetchDocument = () => {
 };
 
 export const useFetchExcel = (filePath: string) => {
-  const [status, setStatus] = useState(true);
+  const [status, setStatus] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
   const { fetchDocument } = useFetchDocument();
   const containerRef = useRef<HTMLDivElement>(null);
-  const { error } = useCatchError(filePath);
 
   const fetchDocumentAsync = useCallback(async () => {
-    let myExcelPreviewer;
+    try {
+      setLoading(true);
+      setError('');
+
+      if (!containerRef.current) {
+        console.error('Excel container not found');
+        setError('Excel container not found');
+        setStatus(false);
+        setLoading(false);
+        return;
+      }
+
+      // 获取数据
+      const jsonFile = await fetchDocument(filePath);
+
+      // 等待容器准备好
+      await new Promise(resolve => {
+        const checkContainer = () => {
+          if (containerRef.current && containerRef.current.offsetHeight > 0) {
+            resolve(undefined);
+          } else {
+            setTimeout(checkContainer, 50);
+          }
+        };
+        checkContainer();
+      });
+
+      // 清空容器并设置基础样式
     if (containerRef.current) {
-      myExcelPreviewer = jsPreviewExcel.init(containerRef.current);
+        containerRef.current.innerHTML = '';
+        containerRef.current.style.width = '100%';
+        containerRef.current.style.height = '100%';
+        containerRef.current.style.overflow = 'auto';
     }
-    const jsonFile = await fetchDocument(filePath);
+
+      // 初始化Excel预览器
+      const myExcelPreviewer = jsPreviewExcel.init(containerRef.current);
+      if (!myExcelPreviewer) {
+        console.error('Failed to initialize Excel previewer');
+        setError('Failed to initialize Excel previewer');
+        setStatus(false);
+        setLoading(false);
+        return;
+      }
+
+      // 预览Excel文件
     myExcelPreviewer
-      ?.preview(jsonFile.data)
+        .preview(jsonFile.data)
       .then(() => {
-        console.log('succeed');
+          console.log('Excel preview succeed');
         setStatus(true);
+          setLoading(false);
       })
       .catch((e) => {
-        console.warn('failed', e);
+          console.warn('Excel preview failed', e);
+          setError(e?.message || 'Excel preview failed');
+          if (myExcelPreviewer && typeof myExcelPreviewer.destroy === 'function') {
         myExcelPreviewer.destroy();
+          }
         setStatus(false);
+          setLoading(false);
       });
+    } catch (err: any) {
+      console.error('Excel fetch error:', err);
+      setError(err?.message || 'Excel fetch error');
+      setStatus(false);
+      setLoading(false);
+    }
   }, [filePath, fetchDocument]);
 
   useEffect(() => {
     fetchDocumentAsync();
   }, [fetchDocumentAsync]);
 
-  return { status, containerRef, error };
+  return { status, loading, containerRef, error };
 };
 
 export const useFetchDocx = (filePath: string) => {

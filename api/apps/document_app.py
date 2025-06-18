@@ -14,6 +14,7 @@
 #  limitations under the License
 #
 import json
+import logging
 import os.path
 import pathlib
 import re
@@ -430,11 +431,55 @@ def get(doc_id):
         response = flask.make_response(STORAGE_IMPL.get(b, n))
 
         ext = re.search(r"\.([^.]+)$", doc.name)
+        logging.info(f"Document get: doc_id={doc_id}, doc.name='{doc.name}', doc.type={doc.type}")
         if ext:
+            ext_value = ext.group(1)
+            logging.info(f"Found extension: '{ext_value}'")
             if doc.type == FileType.VISUAL.value:
-                response.headers.set("Content-Type", "image/%s" % ext.group(1))
+                mime_type = "image/%s" % ext_value
+                response.headers.set("Content-Type", mime_type)
+                logging.info(f"Set VISUAL MIME type: {mime_type}")
             else:
-                response.headers.set("Content-Type", "application/%s" % ext.group(1))
+                # 设置正确的MIME类型
+                ext_lower = ext_value.lower()
+                logging.info(f"Processing non-visual file with extension: '{ext_lower}'")
+                if ext_lower == 'pdf':
+                    mime_type = "application/pdf"
+                elif ext_lower in ['txt', 'text']:
+                    mime_type = "text/plain"
+                elif ext_lower == 'html':
+                    mime_type = "text/html"
+                elif ext_lower in ['doc', 'docx']:
+                    mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                elif ext_lower in ['xls', 'xlsx']:
+                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                elif ext_lower in ['ppt', 'pptx']:
+                    mime_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                elif ext_lower == 'json':
+                    mime_type = "application/json"
+                elif ext_lower == 'xml':
+                    mime_type = "application/xml"
+                elif ext_lower == 'csv':
+                    mime_type = "text/csv"
+                elif ext_lower in ['md', 'markdown']:
+                    mime_type = "text/markdown"
+                else:
+                    # 回退到通用类型
+                    mime_type = "application/octet-stream"
+                    logging.warning(f"Unknown extension '{ext_lower}', using fallback MIME type")
+
+                response.headers.set("Content-Type", mime_type)
+                logging.info(f"Set MIME type: {mime_type} for extension: {ext_lower}")
+        else:
+            # 没有文件扩展名时的默认处理
+            logging.info("No extension found in document name")
+            if doc.type == FileType.VISUAL.value:
+                mime_type = "image/jpeg"
+            else:
+                # 根据内容尝试检测类型，默认为text/plain
+                mime_type = "text/plain"
+            response.headers.set("Content-Type", mime_type)
+            logging.info(f"Set default MIME type: {mime_type}")
         return response
     except Exception as e:
         return server_error_response(e)
@@ -486,14 +531,28 @@ def change_parser():
 # @login_required
 def get_image(image_id):
     try:
+        # 处理前端传递undefined的情况
+        if not image_id or image_id.lower() in ['undefined', 'null', 'none']:
+            logging.warning(f"Invalid image_id received: {image_id}")
+            return get_data_error_result(message="Invalid image ID.")
+
         arr = image_id.split("-")
         if len(arr) != 2:
+            logging.warning(f"Image ID format invalid: {image_id} (expected: bucket-name)")
             return get_data_error_result(message="Image not found.")
+
         bkt, nm = image_id.split("-")
+
+        # 检查存储中是否存在该图像
+        if not STORAGE_IMPL.obj_exist(bkt, nm):
+            logging.warning(f"Image not found in storage: bucket={bkt}, name={nm}")
+            return get_data_error_result(message="Image not found in storage.")
+
         response = flask.make_response(STORAGE_IMPL.get(bkt, nm))
         response.headers.set("Content-Type", "image/JPEG")
         return response
     except Exception as e:
+        logging.error(f"Error serving image {image_id}: {str(e)}")
         return server_error_response(e)
 
 

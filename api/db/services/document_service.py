@@ -216,7 +216,7 @@ class DocumentService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_unfinished_docs(cls):
-        fields = [cls.model.id, cls.model.process_begin_at, cls.model.parser_config, cls.model.progress_msg,
+        fields = [cls.model.id, cls.model.parser_config, cls.model.process_begin_at,
                   cls.model.run, cls.model.parser_id]
         docs = cls.model.select(*fields) \
             .where(
@@ -224,7 +224,11 @@ class DocumentService(CommonService):
             ~(cls.model.type == FileType.VIRTUAL.value),
             cls.model.progress < 1,
             cls.model.progress > 0)
-        return list(docs.dicts())
+        try:
+            return list(docs.dicts())
+        except Exception as e:
+            logging.error(f"Error in get_unfinished_docs: {e}")
+            return []
 
     @classmethod
     @DB.connection_context()
